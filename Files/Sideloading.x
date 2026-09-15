@@ -1,5 +1,6 @@
 // All Codes are adapt from YTLite and uYouEnhanced + Some of my research
 #import "Headers.h"
+#import <dlfcn.h>
 
 // AccessGroupID
 static NSString *accessGroupID() {
@@ -72,6 +73,26 @@ static NSString *accessGroupID() {
 - (BOOL)clientInfraClientConfigIosEnableFillingEncodedHacksInnertubeContext { return NO; }
 %end
 
+static BOOL isSelf() {
+    NSArray *addresses = [NSThread callStackReturnAddresses];
+    Dl_info info = {0};
+    if (dladdr((void *)[addresses[2] longLongValue], &info) == 0) return NO;
+    NSString *path = [NSString stringWithUTF8String:info.dli_fname];
+    if (![path hasPrefix:NSBundle.mainBundle.bundlePath]) return NO;
+    
+    for (NSNumber *address in addresses) {
+        Dl_info frameInfo = {0};
+        if (dladdr((void *)[address longLongValue], &frameInfo) != 0) {
+            NSString *framePath = [NSString stringWithUTF8String:frameInfo.dli_fname];
+            if ([framePath containsString:@"MediaPlayer.framework"] || 
+                [framePath containsString:@"AVFoundation.framework"]) {
+                return NO;
+            }
+        }
+    }
+    return YES;
+}
+
 %hook NSBundle
 + (NSBundle *)bundleWithIdentifier:(NSString *)identifier {
     if ([identifier isEqualToString:YT_BUNDLE_ID])
@@ -79,14 +100,17 @@ static NSString *accessGroupID() {
     return %orig(identifier);
 }
 - (NSString *)bundleIdentifier {
-    return [self isEqual:NSBundle.mainBundle] ? YT_BUNDLE_ID : %orig;
+    if ([self isEqual:NSBundle.mainBundle]) {
+        return isSelf() ? YT_BUNDLE_ID : %orig;
+    }
+    return %orig;
 }
 - (NSDictionary *)infoDictionary {
     NSDictionary *dict = %orig;
     if (![self isEqual:NSBundle.mainBundle])
         return %orig;
     NSMutableDictionary *info = [dict mutableCopy];
-    if (info[@"CFBundleIdentifier"]) info[@"CFBundleIdentifier"] = YT_BUNDLE_ID;
+    if (info[@"CFBundleIdentifier"]) info[@"CFBundleIdentifier"] = isSelf() ? YT_BUNDLE_ID : dict[@"CFBundleIdentifier"];
     if (info[@"CFBundleDisplayName"]) info[@"CFBundleDisplayName"] = YT_NAME;
     if (info[@"CFBundleName"]) info[@"CFBundleName"] = YT_NAME;
     return info;
@@ -95,7 +119,7 @@ static NSString *accessGroupID() {
     if (![self isEqual:NSBundle.mainBundle])
         return %orig;
     if ([key isEqualToString:@"CFBundleIdentifier"])
-        return YT_BUNDLE_ID;
+        return isSelf() ? YT_BUNDLE_ID : %orig;
     if ([key isEqualToString:@"CFBundleDisplayName"] || [key isEqualToString:@"CFBundleName"])
         return YT_NAME;
     return %orig;
